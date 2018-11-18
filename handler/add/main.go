@@ -1,26 +1,27 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
+	"time"
 
+	"github.com/aws/aws-lambda-go/events"
+	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/pkg/errors"
+	"github.com/smockoro/todoLambda/domain"
 	"github.com/smockoro/todoLambda/driver/db"
 )
 
 type request struct {
-	URL string `json:"url"`
+	User    string `json:"user"`
+	Subject string `json:"subject"`
 }
 
 type Response struct {
-	ShortenResource string `json:"shorten_resource"`
-}
-
-type Link struct {
-	ShortenResource string `json:"shorten_resource"`
-	OriginalURL     string `json:"original_url"`
+	Id string `json:"id"`
 }
 
 var DynamoDB db.DB
@@ -34,6 +35,39 @@ func main() {
 }
 
 func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	p, err := parseRequest(request)
+	if err != nil {
+		return response(
+			http.StatusBadRequest,
+			errorResponseBody(err.Error()),
+		), nil
+	}
+
+	t := time.Now()
+	converted := sha256.Sum256([]byte(t.String() + p.User + p.Subject))
+	id := hex.EncodeToString(converted[:])
+	todo := &model.Todo{
+		Id:      id,
+		User:    p.User,
+		Subject: p.Subject,
+		Status:  "none",
+	}
+
+	_, err = DynamoDB.PutItem(todo)
+	if err != nil {
+		return response(
+			http.StatusInternalServerError,
+			errorResponseBody(err.Error()),
+		), nil
+	}
+
+	b, err := responseBody(id)
+	if err != nil {
+		return response(
+			http.StatusInternalServerError,
+			errorResponseBody(err.Error()),
+		), nil
+	}
 	return response(http.StatusOK, b), nil
 }
 
@@ -46,17 +80,10 @@ func parseRequest(req events.APIGatewayProxyRequest) (*request, error) {
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to parse request")
 	}
-	// ParseRequestURI は文字列を受け取り、URL にパースするメソッドです。 // エラーなくパースできることで有効な URL とみなしています。
-	// https://golang.org/src/net/url/url.go?s=13616:13665#L471
-	_, err = url.ParseRequestURI(r.URL)
-	if err != nil {
-		return nil, errors.Wrapf(err, "invalid URL")
-	}
 	return &r, nil
 }
 
 func response(code int, body string) events.APIGatewayProxyResponse {
-	// Lambda プロキシ統合のレスポンスフォーマットに沿った構造体が // aws-lambda-go で定義されています。
 	return events.APIGatewayProxyResponse{
 		StatusCode: code,
 		Body:       body,
@@ -64,8 +91,8 @@ func response(code int, body string) events.APIGatewayProxyResponse {
 	}
 }
 
-func responseBody(shortenResource string) (string, error) {
-	resp, err := json.Marshal(Response{ShortenResource: shortenResource})
+func responseBody(id string) (string, error) {
+	resp, err := json.Marshal(Response{Id: id})
 	if err != nil {
 		return "", err
 	}

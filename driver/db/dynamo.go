@@ -9,15 +9,13 @@ import (
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
 	"github.com/pkg/errors"
 
-	"github.com/smockoro/todoLambda/domain/todo"
+	"github.com/smockoro/todoLambda/domain"
 )
 
 var (
 	TableName = os.Getenv("DYNAMO_TABLE")
 	Region    = os.Getenv("REGION")
 )
-
-var Todo todo.Todo
 
 type DB struct {
 	Instance *dynamodb.DynamoDB
@@ -47,7 +45,7 @@ func (d DB) GetItem(user, id interface{}) (interface{}, error) {
 	if item.Item == nil {
 		return nil, nil
 	}
-	todo := &Todo{}
+	todo := &model.Todo{}
 	err = dynamodbattribute.UnmarshalMap(item.Item, &todo)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to marshal item")
@@ -81,7 +79,7 @@ func (d DB) GetItems(user interface{}) (interface{}, error) {
 	if result.Items == nil {
 		return nil, nil
 	}
-	todos := make([]*Todo, 0)
+	todos := make([]*model.Todo, 0)
 	err = dynamodbattribute.UnmarshalListOfMaps(result.Items, &todos)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to marshal item")
